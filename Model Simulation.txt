@@ -3,10 +3,6 @@ import matplotlib.pyplot as plt
 from scipy.integrate import odeint
 import os
 
-# Create directory for saving plots
-if not os.path.exists('tb_simulation_plots'):
-    os.makedirs('tb_simulation_plots')
-
 # --- TB Dynamics with Realistic Nigeria Parameters ---
 def f(x_vec, u_vec, N=220e6):
     """
@@ -16,7 +12,7 @@ def f(x_vec, u_vec, N=220e6):
     alpha, kappa = u_vec
     
     # REALISTIC PARAMETERS FOR NIGERIA
-    Lambda = 15000      # births/day (220e6 / (65*365*0.03) Å 15,000 with 3% growth)
+    Lambda = 15000      # births/day (220e6 / (65*365*0.03) Ã… 15,000 with 3% growth)
     beta = 0.5          # higher transmission rate (TB is highly infectious)
     mu = 1/(65*365)     # death rate (65 year life expectancy)
     gamma = 1/180       # recovery rate (6-month treatment)
