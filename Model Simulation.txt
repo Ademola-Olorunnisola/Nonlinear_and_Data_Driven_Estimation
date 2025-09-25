@@ -1,0 +1,243 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.integrate import odeint
+import os
+
+# Create directory for saving plots
+if not os.path.exists('tb_simulation_plots'):
+    os.makedirs('tb_simulation_plots')
+
+# --- TB Dynamics with Realistic Nigeria Parameters ---
+def f(x_vec, u_vec, N=220e6):
+    """
+    TB transmission dynamics with frequency-dependent transmission
+    """
+    S, V, I, R = x_vec
+    alpha, kappa = u_vec
+    
+    # REALISTIC PARAMETERS FOR NIGERIA
+    Lambda = 15000      # births/day (220e6 / (65*365*0.03) Å 15,000 with 3% growth)
+    beta = 0.5          # higher transmission rate (TB is highly infectious)
+    mu = 1/(65*365)     # death rate (65 year life expectancy)
+    gamma = 1/180       # recovery rate (6-month treatment)
+    sigma = 0.7         # vaccine inefficiency (BCG ~30% effective against pulmonary TB)
+    
+    # Frequency-dependent transmission (more realistic)
+    S_dot = Lambda - beta*(1-kappa)*S*I/N - alpha*S - mu*S
+    V_dot = alpha*S - sigma*beta*(1-kappa)*V*I/N - mu*V
+    I_dot = beta*(1-kappa)*S*I/N + sigma*beta*(1-kappa)*V*I/N - gamma*I - mu*I
+    R_dot = gamma*I - mu*R
+    
+    return np.array([S_dot, V_dot, I_dot, R_dot])
+
+# ODE wrapper
+def f_ode(x_vec, t, u_func):
+    u_vec = u_func(x_vec, t)
+    return f(x_vec, u_vec)
+
+# Control function with realistic intervention levels
+def u_func(x_vec, t):
+    S, V, I, R = x_vec
+    N = S + V + I + R
+    I_current = x_vec[2]
+    
+    # REALISTIC VACCINATION RATES (per day)
+    # BCG is given at birth, so alpha represents routine immunization rate
+    if t < 100:
+        alpha = 0.0005  # Baseline routine immunization (low coverage)
+    elif t < 200:
+        alpha = 0.002   # Enhanced vaccination campaign (realistic scale)
+    else:
+        alpha = 0.001   # Sustained improved coverage
+    
+    # REALISTIC SOCIAL DISTANCING EFFECTIVENESS
+    # Based on infection prevalence (cases per 100,000)
+    prevalence_per_100k = (I_current / N) * 100000
+    
+    if prevalence_per_100k > 200:  # High prevalence threshold
+        kappa = 0.4    # 60% effective social distancing
+    else:
+        kappa = 0.8    # 20% effective social distancing (relaxed)
+    
+    return [alpha, kappa]
+
+# Measurement function with realistic reporting
+def h(x_vec, u_vec):
+    S, V, I, R = x_vec
+    N = S + V + I + R
+    alpha, kappa = u_vec
+    
+    # REALISTIC MEASUREMENTS (what's actually observable)
+    reported_cases = 0.6 * I  # 60% case detection rate (WHO estimates 40-60% for Nigeria)
+    vaccination_coverage = V / N  # Proportion vaccinated in population
+    
+    return np.array([reported_cases, vaccination_coverage])
+
+# --- REALISTIC SIMULATION PARAMETERS FOR NIGERIA ---
+dt = 1.0  # daily time steps
+tsim = np.arange(0, 365, dt)  # 1-year simulation
+N = 220e6  # Nigeria population (2024 estimate)
+
+# CORRECTED INITIAL CONDITIONS FOR NIGERIA TB
+# Based on WHO Nigeria TB profile 2023-2024
+I0 = 361000       # Active TB cases (from your paper - 2023 data)
+R0 = 0.93 * I0    # Recovered/immune (93% of infected as requested)
+V0 = 0.71 * N     # Vaccinated (BCG coverage 71% in Nigeria - WHO 2023)  # UPDATED FROM 85% TO 71%
+S0 = N - V0 - I0 - R0  # Susceptible (remaining population)
+
+print(f"Initial conditions:")
+print(f"Susceptible: {S0:.0f} ({S0/N*100:.1f}%)")
+print(f"Vaccinated: {V0:.0f} ({V0/N*100:.1f}%)")  
+print(f"Infected: {I0:.0f} ({I0/N*100:.3f}%)")
+print(f"Recovered: {R0:.0f} ({R0/N*100:.3f}%)")
+print(f"Total: {S0 + V0 + I0 + R0:.0f} (should equal {N:.0f})")
+
+x0 = np.array([S0, V0, I0, R0])
+
+# Run ODE simulation
+print("Running simulation...")
+result = odeint(f_ode, x0, tsim, args=(u_func,))
+
+# Generate realistic noisy measurements
+# Noise proportional to signal magnitude
+noise_std_cases = 0.1 * result[:,2]  # 10% noise in case reporting
+noise_std_vacc = 0.02  # 2% absolute noise in vaccination coverage
+
+y_noisy = []
+y_true = []
+
+for k, xk in enumerate(result):
+    uk = u_func(xk, tsim[k])
+    yk_true = h(xk, uk)
+    
+    # Proportional noise for cases, absolute noise for coverage
+    noise = np.array([
+        np.random.normal(0, max(noise_std_cases[k], 1000)),  # min 1000 cases noise
+        np.random.normal(0, noise_std_vacc)
+    ])
+    yk_noisy = yk_true + noise
+    y_true.append(yk_true)
+    y_noisy.append(yk_noisy)
+
+y_true = np.array(y_true)
+y_noisy = np.array(y_noisy)
+
+# --- SEPARATE PLOTS WITH DIFFERENT COLORS FOR NOISY MEASUREMENTS ---
+
+# 1. TB Compartment Dynamics with Dual Scaling
+plt.figure(figsize=(10, 6))
+ax1 = plt.gca()
+
+# Left axis for large populations
+ax1.plot(tsim, result[:,0]/1e6, 'b-', linewidth=2, label='Susceptible')
+ax1.plot(tsim, result[:,1]/1e6, 'g-', linewidth=2, label='Vaccinated')
+ax1.plot(tsim, result[:,3]/1e6, 'purple', linewidth=2, label='Recovered')
+ax1.set_ylabel('Population (Millions)', color='black')
+ax1.set_xlabel('Time (days)')
+ax1.tick_params(axis='y', labelcolor='black')
+
+# Right axis for infected (thousands)
+ax2 = ax1.twinx()
+ax2.plot(tsim, result[:,2]/1e3, 'r-', linewidth=3, label='Infected')
+ax2.set_ylabel('Infected Population (Thousands)', color='red')
+ax2.tick_params(axis='y', labelcolor='red')
+
+plt.title('TB Simulation')
+ax1.legend(loc='upper left')
+ax2.legend(loc='upper right')
+ax1.grid(True)
+plt.tight_layout()
+plt.savefig('tb_simulation_plots/01_compartment_dynamics.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# 2. TB Case Reporting
+plt.figure(figsize=(10, 6))
+plt.plot(tsim, y_true[:,0]/1e3, 'r-', linewidth=2, label='True reported cases')
+plt.plot(tsim, y_noisy[:,0]/1e3, 'orange', marker='o', alpha=0.6, markersize=3, 
+         linestyle='None', label='Noisy measurements')
+plt.ylabel('Reported Cases (thousands)')
+plt.xlabel('Time (days)')
+plt.title('TB Case Reporting')
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.savefig('tb_simulation_plots/02_case_reporting.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# 3. BCG Vaccination Coverage
+plt.figure(figsize=(10, 6))
+plt.plot(tsim, y_true[:,1]*100, 'g-', linewidth=2, label='True coverage')
+plt.plot(tsim, y_noisy[:,1]*100, 'lime', marker='s', alpha=0.6, markersize=3, 
+         linestyle='None', label='Noisy measurements')
+plt.ylabel('Vaccination Coverage (%)')
+plt.xlabel('Time (days)')
+plt.title('BCG Vaccination Coverage in Nigeria (71% in 2023 - WHO)')  # UPDATED TITLE
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.savefig('tb_simulation_plots/03_vaccination_coverage.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# 4. TB Prevalence
+plt.figure(figsize=(10, 6))
+prevalence = (result[:,2] / (result[:,0] + result[:,1] + result[:,2] + result[:,3])) * 100000
+plt.plot(tsim, prevalence, 'orange', linewidth=2)
+plt.axhline(y=200, color='red', linestyle='--', linewidth=2, label='Social distancing threshold (200/100k)')
+plt.ylabel('Cases per 100,000 Population')
+plt.xlabel('Time (days)')
+plt.title('TB Prevalence per 100,000 Population')
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.savefig('tb_simulation_plots/04_prevalence_rate.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# 5. Vaccination Intervention
+plt.figure(figsize=(10, 6))
+alpha_vals = [u_func(result[i], tsim[i])[0] for i in range(len(tsim))]
+plt.plot(tsim, np.array(alpha_vals)*10000, 'blue', linewidth=2)
+plt.ylabel('Vaccination Rate (per 10,000 people per day)')
+plt.xlabel('Time (days)')
+plt.title('Vaccination Intervention Strategy')
+plt.grid(True)
+plt.tight_layout()
+plt.savefig('tb_simulation_plots/05_vaccination_intervention.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# 6. Social Distancing Intervention
+plt.figure(figsize=(10, 6))
+kappa_vals = [u_func(result[i], tsim[i])[1] for i in range(len(tsim))]
+plt.plot(tsim, (1-np.array(kappa_vals))*100, 'green', linewidth=2)
+plt.ylabel('Social Distancing Effectiveness (%)')
+plt.xlabel('Time (days)')
+plt.title('Social Distancing Intervention Strategy')
+plt.grid(True)
+plt.tight_layout()
+plt.savefig('tb_simulation_plots/06_social_distancing.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+# --- Validation and Summary ---
+final_pop = result[-1,:].sum()
+pop_conservation_error = abs(final_pop - N) / N * 100
+
+print(f"\n=== SIMULATION RESULTS ===")
+print(f"Final populations:")
+print(f"  Susceptible: {result[-1,0]:.0f} ({result[-1,0]/final_pop*100:.1f}%)")
+print(f"  Vaccinated: {result[-1,1]:.0f} ({result[-1,1]/final_pop*100:.1f}%)")
+print(f"  Infected: {result[-1,2]:.0f} ({result[-1,2]/final_pop*100:.3f}%)")
+print(f"  Recovered: {result[-1,3]:.0f} ({result[-1,3]/final_pop*100:.1f}%)")
+print(f"Total population conservation error: {pop_conservation_error:.3f}%")
+
+# Check if outbreak is realistic
+peak_infections = result[:,2].max()
+print(f"Peak infections: {peak_infections:.0f} cases")
+print(f"Outbreak trend: {'Growing' if result[-1,2] > I0 else 'Declining'}")
+
+# Compare with Nigeria reality
+print(f"\nComparison with Nigeria 2023:")
+print(f"  Initial cases (model): {I0:.0f}")
+print(f"  WHO reported 2023: 361,000")
+print(f"  Model final cases: {result[-1,2]:.0f}")
+print(f"  BCG coverage (model): 71% (WHO 2023)")  # ADDED BCG COVERAGE INFO
+
+print(f"\nAll plots saved to 'tb_simulation_plots' folder!")
