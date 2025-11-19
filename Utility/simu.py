@@ -93,8 +93,8 @@ class F(object):
                                              0,
                                              0])
 
-        # Combined SVIR dynamics
-        svir_dynamics = f0_contribution + f1_contribution + f2_contribution
+        # Combined dynamics (including parameter slots)
+        x_dot_vec = f0_contribution + f1_contribution + f2_contribution
 
         # Parameter dynamics (choose based on self.parameter_dynamics)
         if self.parameter_dynamics == 'fixed':
@@ -134,8 +134,7 @@ class F(object):
         else:
             raise ValueError(f"Unknown parameter_dynamics option: {self.parameter_dynamics}")
 
-        # Combine everything - update the parameter dynamics in the array
-        x_dot_vec = svir_dynamics.copy()
+        # Combine everything - directly update the array indices
         x_dot_vec[4] = beta_dot
         x_dot_vec[5] = sigma_dot
 
