@@ -206,7 +206,7 @@ class H(object):
 
     def h_all_with_params(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement 7 (NEW): y = [S, V, I, R, beta, sigma]^T
+        Measurement 7: y = [S, V, I, R, beta, sigma]^T
         All compartments plus parameters
         FULL observability - includes transmission rate and vaccine efficacy
         """
@@ -223,6 +223,111 @@ class H(object):
 
         # Measurements
         y_vec = np.array([S, V, I, R, beta, sigma])
+
+        return y_vec
+
+    def h_with_total_incidence(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement 8: y = [S, V, I, R, total_incidence]^T
+        Includes total incidence rate for better beta observability
+        total_incidence = β*S*I + σ*β*V*I
+        """
+        if return_measurement_names:
+            return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute', 'total_incidence']
+
+        # Extract state variables
+        S = x_vec[0]
+        V = x_vec[1]
+        I = x_vec[2]
+        R = x_vec[3]
+        beta = x_vec[4]
+        sigma = x_vec[5]
+
+        # Total incidence (new infections per time)
+        total_incidence = beta*S*I + sigma*beta*V*I
+
+        # Measurements
+        y_vec = np.array([S, V, I, R, total_incidence])
+
+        return y_vec
+
+    def h_with_breakthrough(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement 9: y = [S, V, I, R, vax_incidence]^T
+        Includes vaccinated incidence for better sigma observability
+        vax_incidence = σ*β*V*I
+        """
+        if return_measurement_names:
+            return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute', 'vax_incidence']
+
+        # Extract state variables
+        S = x_vec[0]
+        V = x_vec[1]
+        I = x_vec[2]
+        R = x_vec[3]
+        beta = x_vec[4]
+        sigma = x_vec[5]
+
+        # Vaccinated incidence (breakthrough infections)
+        vax_incidence = sigma*beta*V*I
+
+        # Measurements
+        y_vec = np.array([S, V, I, R, vax_incidence])
+
+        return y_vec
+
+    def h_with_flows(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement 10: y = [S, V, I, R, unvax_incidence, vax_incidence]^T
+        BEST for beta and sigma observability - separates infection flows
+        unvax_incidence = β*S*I (depends on β only)
+        vax_incidence = σ*β*V*I (depends on both β and σ)
+        """
+        if return_measurement_names:
+            return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute', 
+                    'unvax_incidence', 'vax_incidence']
+
+        # Extract state variables
+        S = x_vec[0]
+        V = x_vec[1]
+        I = x_vec[2]
+        R = x_vec[3]
+        beta = x_vec[4]
+        sigma = x_vec[5]
+
+        # Separate infection flows
+        unvax_incidence = beta*S*I
+        vax_incidence = sigma*beta*V*I
+
+        # Measurements
+        y_vec = np.array([S, V, I, R, unvax_incidence, vax_incidence])
+
+        return y_vec
+
+    def h_comprehensive(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement 11: y = [S, V, I, R, unvax_incidence, vax_incidence, recoveries]^T
+        Most comprehensive - all major flows
+        """
+        if return_measurement_names:
+            return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute',
+                    'unvax_incidence', 'vax_incidence', 'recoveries']
+
+        # Extract state variables
+        S = x_vec[0]
+        V = x_vec[1]
+        I = x_vec[2]
+        R = x_vec[3]
+        beta = x_vec[4]
+        sigma = x_vec[5]
+
+        # All flows
+        unvax_incidence = beta*S*I
+        vax_incidence = sigma*beta*V*I
+        recoveries = gamma*I
+
+        # Measurements
+        y_vec = np.array([S, V, I, R, unvax_incidence, vax_incidence, recoveries])
 
         return y_vec
 
@@ -369,8 +474,12 @@ if __name__ == "__main__":
         ('h_is', 'Measurement 3: I + S'),
         ('h_iv', 'Measurement 4: I + V'),
         ('h_ivr', 'Measurement 5: I + V + R'),
-        ('h_all_svir', 'Measurement 6: S + V + I + R (Full)'),
-        ('h_all_with_params', 'Measurement 7: S + V + I + R + beta + sigma (Full with params)')
+        ('h_all_svir', 'Measurement 6: S + V + I + R'),
+        ('h_all_with_params', 'Measurement 7: S + V + I + R + beta + sigma'),
+        ('h_with_total_incidence', 'Measurement 8: SVIR + total incidence'),
+        ('h_with_breakthrough', 'Measurement 9: SVIR + vaccinated incidence'),
+        ('h_with_flows', 'Measurement 10: SVIR + unvax/vax incidence (BEST for params)'),
+        ('h_comprehensive', 'Measurement 11: SVIR + all flows')
     ]
 
     results = {}
@@ -405,11 +514,17 @@ if __name__ == "__main__":
     print("SUMMARY: All measurement options tested successfully!")
     print("="*80)
     print("\nAvailable measurement options for empirical observability:")
-    print("  - h_reported:        I only (baseline, poor observability)")
-    print("  - h_is:              I + S")
-    print("  - h_iv:              I + V")
-    print("  - h_incidence:       I + R")
-    print("  - h_ivr:             I + V + R")
-    print("  - h_all_svir:        S + V + I + R (best compartment observability)")
-    print("  - h_all_with_params: S + V + I + R + beta + sigma (full observability)")
+    print("  BASIC (compartments only):")
+    print("    - h_reported:  I only (poor observability)")
+    print("    - h_is:        I + S")
+    print("    - h_iv:        I + V")
+    print("    - h_incidence: I + R")
+    print("    - h_ivr:       I + V + R")
+    print("    - h_all_svir:  S + V + I + R (best compartment observability)")
+    print("\n  ADVANCED (with parameters or flows):")
+    print("    - h_all_with_params:      S + V + I + R + beta + sigma")
+    print("    - h_with_total_incidence: SVIR + total incidence")
+    print("    - h_with_breakthrough:    SVIR + vaccinated incidence")
+    print("    - h_with_flows:           SVIR + unvax/vax incidence ⭐ BEST")
+    print("    - h_comprehensive:        SVIR + all flows")
     print("="*80)
