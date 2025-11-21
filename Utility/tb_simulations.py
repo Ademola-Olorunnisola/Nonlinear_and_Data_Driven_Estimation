@@ -134,7 +134,7 @@ class H(object):
 
     def h_ivr(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement 3 (NEW): y = [I, V, R]^T (Infected, Vaccinated, and Recovered)
+        Measurement 3: y = [I, V, R]^T (Infected, Vaccinated, and Recovered)
         Better observability - includes vaccination compartment
         """
         if return_measurement_names:
@@ -152,7 +152,7 @@ class H(object):
 
     def h_all_svir(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement 4 (NEW): y = [S, V, I, R]^T (All four compartments)
+        Measurement 4: y = [S, V, I, R]^T (All four compartments)
         Maximum observability - all SVIR states measured
         From analytical analysis: Should give FULL observability (rank=6)
         """
@@ -172,7 +172,7 @@ class H(object):
 
     def h_is(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement 5 (NEW): y = [I, S]^T (Infected and Susceptible)
+        Measurement 5: y = [I, S]^T (Infected and Susceptible)
         Good for analyzing transmission dynamics
         """
         if return_measurement_names:
@@ -189,7 +189,7 @@ class H(object):
 
     def h_iv(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement 6 (NEW): y = [I, V]^T (Infected and Vaccinated)
+        Measurement 6: y = [I, V]^T (Infected and Vaccinated)
         Good for analyzing vaccination effectiveness
         """
         if return_measurement_names:
@@ -201,6 +201,28 @@ class H(object):
 
         # Measurements
         y_vec = np.array([I, V])
+
+        return y_vec
+
+    def h_all_with_params(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement 7 (NEW): y = [S, V, I, R, beta, sigma]^T
+        All compartments plus parameters
+        FULL observability - includes transmission rate and vaccine efficacy
+        """
+        if return_measurement_names:
+            return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute', 'beta', 'sigma']
+
+        # Extract state variables
+        S = x_vec[0]
+        V = x_vec[1]
+        I = x_vec[2]
+        R = x_vec[3]
+        beta = x_vec[4]
+        sigma = x_vec[5]
+
+        # Measurements
+        y_vec = np.array([S, V, I, R, beta, sigma])
 
         return y_vec
 
@@ -347,7 +369,8 @@ if __name__ == "__main__":
         ('h_is', 'Measurement 3: I + S'),
         ('h_iv', 'Measurement 4: I + V'),
         ('h_ivr', 'Measurement 5: I + V + R'),
-        ('h_all_svir', 'Measurement 6: S + V + I + R (Full)')
+        ('h_all_svir', 'Measurement 6: S + V + I + R (Full)'),
+        ('h_all_with_params', 'Measurement 7: S + V + I + R + beta + sigma (Full with params)')
     ]
 
     results = {}
@@ -382,10 +405,11 @@ if __name__ == "__main__":
     print("SUMMARY: All measurement options tested successfully!")
     print("="*80)
     print("\nAvailable measurement options for empirical observability:")
-    print("  - h_reported:  I only (baseline, poor observability)")
-    print("  - h_is:        I + S")
-    print("  - h_iv:        I + V")
-    print("  - h_incidence: I + R")
-    print("  - h_ivr:       I + V + R")
-    print("  - h_all_svir:  S + V + I + R (best observability)")
+    print("  - h_reported:        I only (baseline, poor observability)")
+    print("  - h_is:              I + S")
+    print("  - h_iv:              I + V")
+    print("  - h_incidence:       I + R")
+    print("  - h_ivr:             I + V + R")
+    print("  - h_all_svir:        S + V + I + R (best compartment observability)")
+    print("  - h_all_with_params: S + V + I + R + beta + sigma (full observability)")
     print("="*80)
