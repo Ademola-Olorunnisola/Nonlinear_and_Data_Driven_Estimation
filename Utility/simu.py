@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""tb_simulations.py - Updated with Observable Measurement Options"""
+"""tb_simulations.py - Updated to estimate beta and gamma instead of sigma"""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,7 +11,7 @@ import pybounds
 ############################################################################################
 Lambda = 9.04e-5    # Recruitment rate per day
 mu = 4.3e-5         # Mortality rate per day
-gamma = 0.00555     # Removal rate per day
+sigma = 0.8         # Vaccine efficacy (now fixed parameter)
 N = 223000000       # Total population
 
 ############################################################################################
@@ -21,13 +21,14 @@ class F(object):
     def __init__(self):
         pass
 
-    def f(self, x_vec, u_vec, Lambda=Lambda, mu=mu, gamma=gamma, return_state_names=False):
+    def f(self, x_vec, u_vec, Lambda=Lambda, mu=mu, sigma=sigma, return_state_names=False):
         """
         Continuous time dynamics function for TB SVIR model.
+        Now estimates beta and gamma as state variables.
 
         Parameters:
         x_vec : array-like, shape (6,)
-            State vector [S, V, I, R, beta, sigma]
+            State vector [S, V, I, R, beta, gamma]
         u_vec : array-like, shape (2,)
             Control vector [alpha, kappa]
             alpha: vaccination rate
@@ -36,15 +37,15 @@ class F(object):
             Recruitment rate per day
         mu : float, default 4.3e-5
             Mortality rate per day
-        gamma : float, default 0.00555
-            Removal rate per day
+        sigma : float, default 0.8
+            Vaccine efficacy (fixed parameter)
 
         Returns:
         x_dot : numpy array, shape (6,)
             Time derivative of state vector
         """
         if return_state_names:
-            return ['S', 'V', 'I', 'R', 'beta', 'sigma']
+            return ['S', 'V', 'I', 'R', 'beta', 'gamma']
 
         # Extract state variables
         S = x_vec[0]
@@ -52,7 +53,7 @@ class F(object):
         I = x_vec[2]
         R = x_vec[3]
         beta = x_vec[4]
-        sigma = x_vec[5]
+        gamma = x_vec[5]  # Now a state variable
 
         # Extract control inputs
         alpha = u_vec[0]  # vaccination rate
@@ -103,17 +104,12 @@ class H(object):
     def h_reported(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 1: y = [I] (Infected population only)
-        From analytical analysis: INSUFFICIENT for full observability
         """
         if return_measurement_names:
             return ['I_absolute']
 
-        # Extract state variables
         I = x_vec[2]
-
-        # Measurements
         y_vec = np.array([I])
-
         return y_vec
 
     def h_incidence(self, x_vec, u_vec, return_measurement_names=False):
@@ -123,107 +119,78 @@ class H(object):
         if return_measurement_names:
             return ['I_absolute', 'R_absolute']
 
-        # Extract state variables
         I = x_vec[2]
         R = x_vec[3]
-
-        # Measurements
         y_vec = np.array([I, R])
-
         return y_vec
 
     def h_ivr(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 3: y = [I, V, R]^T (Infected, Vaccinated, and Recovered)
-        Better observability - includes vaccination compartment
         """
         if return_measurement_names:
             return ['I_absolute', 'V_absolute', 'R_absolute']
 
-        # Extract state variables
         I = x_vec[2]
         V = x_vec[1]
         R = x_vec[3]
-
-        # Measurements
         y_vec = np.array([I, V, R])
-
         return y_vec
 
     def h_all_svir(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 4: y = [S, V, I, R]^T (All four compartments)
-        Maximum observability - all SVIR states measured
-        From analytical analysis: Should give FULL observability (rank=6)
         """
         if return_measurement_names:
             return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute']
 
-        # Extract state variables
         S = x_vec[0]
         V = x_vec[1]
         I = x_vec[2]
         R = x_vec[3]
-
-        # Measurements
         y_vec = np.array([S, V, I, R])
-
         return y_vec
 
     def h_is(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 5: y = [I, S]^T (Infected and Susceptible)
-        Good for analyzing transmission dynamics
         """
         if return_measurement_names:
             return ['I_absolute', 'S_absolute']
 
-        # Extract state variables
         I = x_vec[2]
         S = x_vec[0]
-
-        # Measurements
         y_vec = np.array([I, S])
-
         return y_vec
 
     def h_iv(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 6: y = [I, V]^T (Infected and Vaccinated)
-        Good for analyzing vaccination effectiveness
         """
         if return_measurement_names:
             return ['I_absolute', 'V_absolute']
 
-        # Extract state variables
         I = x_vec[2]
         V = x_vec[1]
-
-        # Measurements
         y_vec = np.array([I, V])
-
         return y_vec
 
     def h_all_with_params(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement 7: y = [S, V, I, R, beta, sigma]^T
+        Measurement 7: y = [S, V, I, R, beta, gamma]^T
         All compartments plus parameters
-        FULL observability - includes transmission rate and vaccine efficacy
+        FULL observability - includes transmission rate and recovery rate
         """
         if return_measurement_names:
-            return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute', 'beta', 'sigma']
+            return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute', 'beta', 'gamma']
 
-        # Extract state variables
         S = x_vec[0]
         V = x_vec[1]
         I = x_vec[2]
         R = x_vec[3]
         beta = x_vec[4]
-        sigma = x_vec[5]
-
-        # Measurements
-        y_vec = np.array([S, V, I, R, beta, sigma])
-
+        gamma = x_vec[5]
+        y_vec = np.array([S, V, I, R, beta, gamma])
         return y_vec
 
     def h_with_total_incidence(self, x_vec, u_vec, return_measurement_names=False):
@@ -235,100 +202,99 @@ class H(object):
         if return_measurement_names:
             return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute', 'total_incidence']
 
-        # Extract state variables
         S = x_vec[0]
         V = x_vec[1]
         I = x_vec[2]
         R = x_vec[3]
         beta = x_vec[4]
-        sigma = x_vec[5]
-
-        # Total incidence (new infections per time)
         total_incidence = beta*S*I + sigma*beta*V*I
-
-        # Measurements
         y_vec = np.array([S, V, I, R, total_incidence])
-
         return y_vec
 
-    def h_with_breakthrough(self, x_vec, u_vec, return_measurement_names=False):
+    def h_with_recovery_flow(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement 9: y = [S, V, I, R, vax_incidence]^T
-        Includes vaccinated incidence for better sigma observability
-        vax_incidence = σ*β*V*I
+        Measurement 9: y = [S, V, I, R, recoveries]^T
+        Includes recovery flow for better gamma observability
+        recoveries = γ*I
         """
         if return_measurement_names:
-            return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute', 'vax_incidence']
+            return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute', 'recoveries']
 
-        # Extract state variables
         S = x_vec[0]
         V = x_vec[1]
         I = x_vec[2]
         R = x_vec[3]
-        beta = x_vec[4]
-        sigma = x_vec[5]
-
-        # Vaccinated incidence (breakthrough infections)
-        vax_incidence = sigma*beta*V*I
-
-        # Measurements
-        y_vec = np.array([S, V, I, R, vax_incidence])
-
+        gamma = x_vec[5]
+        recoveries = gamma*I
+        y_vec = np.array([S, V, I, R, recoveries])
         return y_vec
 
     def h_with_flows(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement 10: y = [S, V, I, R, unvax_incidence, vax_incidence]^T
-        BEST for beta and sigma observability - separates infection flows
-        unvax_incidence = β*S*I (depends on β only)
-        vax_incidence = σ*β*V*I (depends on both β and σ)
+        Measurement 10: y = [S, V, I, R, total_incidence, recoveries]^T
+        BEST for beta and gamma observability - separates infection and recovery flows
+        total_incidence = β*S*I + σ*β*V*I (depends on β)
+        recoveries = γ*I (depends on γ)
         """
         if return_measurement_names:
             return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute', 
-                    'unvax_incidence', 'vax_incidence']
+                    'total_incidence', 'recoveries']
 
-        # Extract state variables
         S = x_vec[0]
         V = x_vec[1]
         I = x_vec[2]
         R = x_vec[3]
         beta = x_vec[4]
-        sigma = x_vec[5]
+        gamma = x_vec[5]
+        
+        total_incidence = beta*S*I + sigma*beta*V*I
+        recoveries = gamma*I
+        y_vec = np.array([S, V, I, R, total_incidence, recoveries])
+        return y_vec
 
-        # Separate infection flows
+    def h_with_unvax_incidence(self, x_vec, u_vec, return_measurement_names=False):
+        """
+        Measurement 11: y = [S, V, I, R, unvax_incidence, recoveries]^T
+        Alternative measurement - focuses on unvaccinated infections + recoveries
+        unvax_incidence = β*S*I (depends on β only, cleaner than total)
+        recoveries = γ*I (depends on γ)
+        """
+        if return_measurement_names:
+            return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute',
+                    'unvax_incidence', 'recoveries']
+
+        S = x_vec[0]
+        V = x_vec[1]
+        I = x_vec[2]
+        R = x_vec[3]
+        beta = x_vec[4]
+        gamma = x_vec[5]
+        
         unvax_incidence = beta*S*I
-        vax_incidence = sigma*beta*V*I
-
-        # Measurements
-        y_vec = np.array([S, V, I, R, unvax_incidence, vax_incidence])
-
+        recoveries = gamma*I
+        y_vec = np.array([S, V, I, R, unvax_incidence, recoveries])
         return y_vec
 
     def h_comprehensive(self, x_vec, u_vec, return_measurement_names=False):
         """
-        Measurement 11: y = [S, V, I, R, unvax_incidence, vax_incidence, recoveries]^T
-        Most comprehensive - all major flows
+        Measurement 12: y = [S, V, I, R, unvax_incidence, vax_incidence, recoveries]^T
+        Most comprehensive - all major flows including breakthrough infections
         """
         if return_measurement_names:
             return ['S_absolute', 'V_absolute', 'I_absolute', 'R_absolute',
                     'unvax_incidence', 'vax_incidence', 'recoveries']
 
-        # Extract state variables
         S = x_vec[0]
         V = x_vec[1]
         I = x_vec[2]
         R = x_vec[3]
         beta = x_vec[4]
-        sigma = x_vec[5]
-
-        # All flows
+        gamma = x_vec[5]
+        
         unvax_incidence = beta*S*I
         vax_incidence = sigma*beta*V*I
         recoveries = gamma*I
-
-        # Measurements
         y_vec = np.array([S, V, I, R, unvax_incidence, vax_incidence, recoveries])
-
         return y_vec
 
 
@@ -359,7 +325,7 @@ def simulate_tb(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     rterm_kappa : float
         Control input penalty for social distancing
     x0 : array-like
-        Initial conditions
+        Initial conditions [S, V, I, R, beta, gamma]
 
     Returns:
     --------
@@ -405,7 +371,7 @@ def simulate_tb(f, h, tsim_length=365, dt=1.0, measurement_names=None,
             'I': I_setpoint,
             'R': NA,
             'beta': 0.3 * np.ones_like(tsim),
-            'sigma': 0.8 * np.ones_like(tsim),
+            'gamma': 0.00555 * np.ones_like(tsim),
         }
 
     # Update the simulator set-point
@@ -433,8 +399,9 @@ def simulate_tb(f, h, tsim_length=365, dt=1.0, measurement_names=None,
     simulator.mpc.bounds['upper', '_x', 'R'] = N
     simulator.mpc.bounds['lower', '_x', 'beta'] = 0.0
     simulator.mpc.bounds['upper', '_x', 'beta'] = 1.0
-    simulator.mpc.bounds['lower', '_x', 'sigma'] = 0.0
-    simulator.mpc.bounds['upper', '_x', 'sigma'] = 1.0
+    simulator.mpc.bounds['lower', '_x', 'gamma'] = 0.0
+    simulator.mpc.bounds['upper', '_x', 'gamma'] = 0.1  # Recovery rate bound
+
     simulator.mpc.bounds['lower', '_u', 'alpha'] = 0.0
     simulator.mpc.bounds['upper', '_u', 'alpha'] = 0.5
     simulator.mpc.bounds['lower', '_u', 'kappa'] = 0.0
@@ -450,21 +417,21 @@ def simulate_tb(f, h, tsim_length=365, dt=1.0, measurement_names=None,
 # Example usage
 ############################################################################################
 if __name__ == "__main__":
-    # Define initial conditions
+    # Define initial conditions [S, V, I, R, beta, gamma]
     x0 = np.array([
         (N - 158330000 - 361000 - 12000000),  # S
         158330000,                             # V
         361000,                                # I
         12000000,                              # R
-        0.3,                                   # beta
-        0.8                                    # sigma
+        0.3,                                   # beta (transmission rate)
+        0.00555                                # gamma (recovery rate)
     ])
 
     # Create dynamics object
     f_obj = F()
 
     print("="*80)
-    print("TESTING ALL MEASUREMENT OPTIONS")
+    print("TESTING ALL MEASUREMENT OPTIONS (Beta and Gamma Estimation)")
     print("="*80)
 
     # Test all measurement options
@@ -475,11 +442,12 @@ if __name__ == "__main__":
         ('h_iv', 'Measurement 4: I + V'),
         ('h_ivr', 'Measurement 5: I + V + R'),
         ('h_all_svir', 'Measurement 6: S + V + I + R'),
-        ('h_all_with_params', 'Measurement 7: S + V + I + R + beta + sigma'),
+        ('h_all_with_params', 'Measurement 7: S + V + I + R + beta + gamma'),
         ('h_with_total_incidence', 'Measurement 8: SVIR + total incidence'),
-        ('h_with_breakthrough', 'Measurement 9: SVIR + vaccinated incidence'),
-        ('h_with_flows', 'Measurement 10: SVIR + unvax/vax incidence (BEST for params)'),
-        ('h_comprehensive', 'Measurement 11: SVIR + all flows')
+        ('h_with_recovery_flow', 'Measurement 9: SVIR + recoveries (good for gamma)'),
+        ('h_with_flows', 'Measurement 10: SVIR + incidence + recoveries ⭐ BEST'),
+        ('h_with_unvax_incidence', 'Measurement 11: SVIR + unvax incidence + recoveries'),
+        ('h_comprehensive', 'Measurement 12: SVIR + all flows')
     ]
 
     results = {}
@@ -507,24 +475,31 @@ if __name__ == "__main__":
             print(f"✓ Simulation successful")
             print(f"  Final I: {x_sim['I'][-1]:.0f}")
             print(f"  Final V: {x_sim['V'][-1]:.0f}")
+            print(f"  Final beta: {x_sim['beta'][-1]:.4f}")
+            print(f"  Final gamma: {x_sim['gamma'][-1]:.6f}")
         except Exception as e:
             print(f"✗ Simulation failed: {str(e)}")
 
     print("\n" + "="*80)
-    print("SUMMARY: All measurement options tested successfully!")
+    print("SUMMARY: Estimating beta (transmission) and gamma (recovery)")
     print("="*80)
     print("\nAvailable measurement options for empirical observability:")
     print("  BASIC (compartments only):")
     print("    - h_reported:  I only (poor observability)")
     print("    - h_is:        I + S")
     print("    - h_iv:        I + V")
-    print("    - h_incidence: I + R")
+    print("    - h_incidence: I + R (good for gamma through dR/dt)")
     print("    - h_ivr:       I + V + R")
-    print("    - h_all_svir:  S + V + I + R (best compartment observability)")
+    print("    - h_all_svir:  S + V + I + R")
     print("\n  ADVANCED (with parameters or flows):")
-    print("    - h_all_with_params:      S + V + I + R + beta + sigma")
-    print("    - h_with_total_incidence: SVIR + total incidence")
-    print("    - h_with_breakthrough:    SVIR + vaccinated incidence")
-    print("    - h_with_flows:           SVIR + unvax/vax incidence ⭐ BEST")
+    print("    - h_all_with_params:      SVIR + beta + gamma")
+    print("    - h_with_total_incidence: SVIR + total incidence (good for beta)")
+    print("    - h_with_recovery_flow:   SVIR + recoveries (good for gamma)")
+    print("    - h_with_flows:           SVIR + incidence + recoveries ⭐ BEST")
+    print("    - h_with_unvax_incidence: SVIR + unvax incidence + recoveries")
     print("    - h_comprehensive:        SVIR + all flows")
+    print("\n  KEY INSIGHT:")
+    print("    - Recovery flow γ*I helps identify gamma")
+    print("    - Infection flow β*S*I helps identify beta")
+    print("    - Measuring R gives dR/dt = γ*I (indirect gamma observability)")
     print("="*80)
