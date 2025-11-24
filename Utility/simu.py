@@ -23,15 +23,15 @@ class F(object):
         pass
 
     def f(self, x_vec, u_vec, Lambda=Lambda, mu=mu, sigma=sigma, epsilon=epsilon, 
-          return_state_names=False):
+          N=N, return_state_names=False):
         """
-        Continuous time dynamics function for TB SVEIR model.
+        Continuous time dynamics function for TB SVEIR model with PROPORTIONS.
         Includes Exposed (E) compartment and estimates beta and gamma.
         Epsilon is now a FIXED parameter.
 
         Parameters:
         x_vec : array-like, shape (7,)
-            State vector [S, V, E, I, R, beta, gamma]
+            State vector [s, v, e, i, r, beta, gamma] (lowercase = proportions)
         u_vec : array-like, shape (2,)
             Control vector [alpha, kappa]
             alpha: vaccination rate
@@ -44,6 +44,8 @@ class F(object):
             Vaccine efficacy parameter (fixed)
         epsilon : float, default 0.033
             Progression rate from E to I (fixed, ~30 day latent period)
+        N : float, default 223000000
+            Total population (for scaling)
 
         Returns:
         x_dot : numpy array, shape (7,)
@@ -52,12 +54,12 @@ class F(object):
         if return_state_names:
             return ['S', 'V', 'E', 'I', 'R', 'beta', 'gamma']
 
-        # Extract state variables
-        S = x_vec[0]
-        V = x_vec[1]
-        E = x_vec[2]
-        I = x_vec[3]
-        R = x_vec[4]
+        # Extract state variables (proportions)
+        s = x_vec[0]
+        v = x_vec[1]
+        e = x_vec[2]
+        i = x_vec[3]
+        r = x_vec[4]
         beta = x_vec[5]
         gamma = x_vec[6]  # Recovery rate
 
@@ -66,20 +68,21 @@ class F(object):
         kappa = u_vec[1]  # social distancing effectiveness
 
         # f0 component: drift dynamics (no controls)
+        # Note: beta * s * i * N for frequency-dependent transmission with proportions
         f0_contribution = np.array([
-            Lambda - beta * S * I - mu * S,
-            -sigma * beta * V * I - mu * V,
-            beta * S * I + sigma * beta * V * I - epsilon * E - mu * E,
-            epsilon * E - gamma * I - mu * I,
-            gamma * I - mu * R,
+            Lambda / N - beta * N * s * i - mu * s,
+            -sigma * beta * N * v * i - mu * v,
+            beta * N * s * i + sigma * beta * N * v * i - epsilon * e - mu * e,
+            epsilon * e - gamma * i - mu * i,
+            gamma * i - mu * r,
             0,
             0
         ])
 
         # f1 component: multiplied by control alpha (vaccination)
         f1_contribution = alpha * np.array([
-            -S,
-            S,
+            -s,
+            s,
             0,
             0,
             0,
@@ -90,9 +93,9 @@ class F(object):
         # f2 component: multiplied by control kappa (social distancing)
         # Social distancing reduces transmission: prevents entry to E compartment
         f2_contribution = kappa * np.array([
-            beta * S * I,
-            sigma * beta * V * I,
-            -beta * S * I - sigma * beta * V * I,
+            beta * N * s * i,
+            sigma * beta * N * v * i,
+            -beta * N * s * i - sigma * beta * N * v * i,
             0,
             0,
             0,
@@ -119,146 +122,152 @@ class H(object):
     def h_reported(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 1: y = [I] (Infected population only)
+        Returns absolute counts
         """
         if return_measurement_names:
             return ['I_absolute']
 
-        I = x_vec[3]
-        y_vec = np.array([I])
+        i = x_vec[3]  # proportion
+        y_vec = np.array([i * N])  # convert to absolute
         return y_vec
 
     def h_incidence(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 2: y = [I, R]^T (Infected and Recovered populations)
+        Returns absolute counts
         """
         if return_measurement_names:
             return ['I_absolute', 'R_absolute']
 
-        I = x_vec[3]
-        R = x_vec[4]
-        y_vec = np.array([I, R])
+        i = x_vec[3]
+        r = x_vec[4]
+        y_vec = np.array([i * N, r * N])
         return y_vec
 
     def h_eir(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 3: y = [E, I, R]^T (Exposed, Infected, and Recovered)
+        Returns absolute counts
         """
         if return_measurement_names:
             return ['E_absolute', 'I_absolute', 'R_absolute']
 
-        E = x_vec[2]
-        I = x_vec[3]
-        R = x_vec[4]
-        y_vec = np.array([E, I, R])
+        e = x_vec[2]
+        i = x_vec[3]
+        r = x_vec[4]
+        y_vec = np.array([e * N, i * N, r * N])
         return y_vec
 
     def h_all_sveir(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 4: y = [S, V, E, I, R]^T (All five compartments)
+        Returns absolute counts
         """
         if return_measurement_names:
             return ['S_absolute', 'V_absolute', 'E_absolute', 'I_absolute', 'R_absolute']
 
-        S = x_vec[0]
-        V = x_vec[1]
-        E = x_vec[2]
-        I = x_vec[3]
-        R = x_vec[4]
-        y_vec = np.array([S, V, E, I, R])
+        s = x_vec[0]
+        v = x_vec[1]
+        e = x_vec[2]
+        i = x_vec[3]
+        r = x_vec[4]
+        y_vec = np.array([s * N, v * N, e * N, i * N, r * N])
         return y_vec
 
     def h_ei(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 5: y = [E, I]^T (Exposed and Infected)
         Good for observing latent period dynamics
+        Returns absolute counts
         """
         if return_measurement_names:
             return ['E_absolute', 'I_absolute']
 
-        E = x_vec[2]
-        I = x_vec[3]
-        y_vec = np.array([E, I])
+        e = x_vec[2]
+        i = x_vec[3]
+        y_vec = np.array([e * N, i * N])
         return y_vec
 
     def h_all_with_params(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 6: y = [S, V, E, I, R, beta, gamma]^T
         All compartments plus estimated parameters
+        Returns absolute counts for compartments
         """
         if return_measurement_names:
             return ['S_absolute', 'V_absolute', 'E_absolute', 'I_absolute', 'R_absolute', 
                     'beta', 'gamma']
 
-        S = x_vec[0]
-        V = x_vec[1]
-        E = x_vec[2]
-        I = x_vec[3]
-        R = x_vec[4]
+        s = x_vec[0]
+        v = x_vec[1]
+        e = x_vec[2]
+        i = x_vec[3]
+        r = x_vec[4]
         beta = x_vec[5]
         gamma = x_vec[6]
-        y_vec = np.array([S, V, E, I, R, beta, gamma])
+        y_vec = np.array([s * N, v * N, e * N, i * N, r * N, beta, gamma])
         return y_vec
 
     def h_with_infection_flow(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 7: y = [S, V, E, I, R, total_incidence]^T
         Includes total infection flow (entry to E) for better beta observability
-        total_incidence = β*S*I + σ*β*V*I
+        total_incidence = β*N*s*i + σ*β*N*v*i (absolute count per day)
         """
         if return_measurement_names:
             return ['S_absolute', 'V_absolute', 'E_absolute', 'I_absolute', 'R_absolute', 
                     'total_incidence']
 
-        S = x_vec[0]
-        V = x_vec[1]
-        E = x_vec[2]
-        I = x_vec[3]
-        R = x_vec[4]
+        s = x_vec[0]
+        v = x_vec[1]
+        e = x_vec[2]
+        i = x_vec[3]
+        r = x_vec[4]
         beta = x_vec[5]
         
-        total_incidence = beta * S * I + sigma * beta * V * I
-        y_vec = np.array([S, V, E, I, R, total_incidence])
+        total_incidence = beta * N * s * i + sigma * beta * N * v * i
+        y_vec = np.array([s * N, v * N, e * N, i * N, r * N, total_incidence])
         return y_vec
 
     def h_with_progression_flow(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 8: y = [S, V, E, I, R, progression]^T
         Includes progression flow (E to I)
-        progression = ε*E (where ε is fixed parameter)
+        progression = ε*e*N (absolute count per day)
         """
         if return_measurement_names:
             return ['S_absolute', 'V_absolute', 'E_absolute', 'I_absolute', 'R_absolute', 
                     'progression']
 
-        S = x_vec[0]
-        V = x_vec[1]
-        E = x_vec[2]
-        I = x_vec[3]
-        R = x_vec[4]
+        s = x_vec[0]
+        v = x_vec[1]
+        e = x_vec[2]
+        i = x_vec[3]
+        r = x_vec[4]
         
-        progression = epsilon * E
-        y_vec = np.array([S, V, E, I, R, progression])
+        progression = epsilon * e * N
+        y_vec = np.array([s * N, v * N, e * N, i * N, r * N, progression])
         return y_vec
 
     def h_with_recovery_flow(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 9: y = [S, V, E, I, R, recoveries]^T
         Includes recovery flow for better gamma observability
-        recoveries = γ*I
+        recoveries = γ*i*N (absolute count per day)
         """
         if return_measurement_names:
             return ['S_absolute', 'V_absolute', 'E_absolute', 'I_absolute', 'R_absolute', 
                     'recoveries']
 
-        S = x_vec[0]
-        V = x_vec[1]
-        E = x_vec[2]
-        I = x_vec[3]
-        R = x_vec[4]
+        s = x_vec[0]
+        v = x_vec[1]
+        e = x_vec[2]
+        i = x_vec[3]
+        r = x_vec[4]
         gamma = x_vec[6]
         
-        recoveries = gamma * I
-        y_vec = np.array([S, V, E, I, R, recoveries])
+        recoveries = gamma * i * N
+        y_vec = np.array([s * N, v * N, e * N, i * N, r * N, recoveries])
         return y_vec
 
     def h_with_two_flows(self, x_vec, u_vec, return_measurement_names=False):
@@ -270,43 +279,40 @@ class H(object):
             return ['S_absolute', 'V_absolute', 'E_absolute', 'I_absolute', 'R_absolute',
                     'total_incidence', 'recoveries']
 
-        S = x_vec[0]
-        V = x_vec[1]
-        E = x_vec[2]
-        I = x_vec[3]
-        R = x_vec[4]
+        s = x_vec[0]
+        v = x_vec[1]
+        e = x_vec[2]
+        i = x_vec[3]
+        r = x_vec[4]
         beta = x_vec[5]
         gamma = x_vec[6]
         
-        total_incidence = beta * S * I + sigma * beta * V * I
-        recoveries = gamma * I
-        y_vec = np.array([S, V, E, I, R, total_incidence, recoveries])
+        total_incidence = beta * N * s * i + sigma * beta * N * v * i
+        recoveries = gamma * i * N
+        y_vec = np.array([s * N, v * N, e * N, i * N, r * N, total_incidence, recoveries])
         return y_vec
 
     def h_with_all_flows(self, x_vec, u_vec, return_measurement_names=False):
         """
         Measurement 11: y = [S, V, E, I, R, total_incidence, progression, recoveries]^T
         BEST - All three major flows
-        total_incidence = β*S*I + σ*β*V*I (depends on β)
-        progression = ε*E (fixed ε, depends on E)
-        recoveries = γ*I (depends on γ)
         """
         if return_measurement_names:
             return ['S_absolute', 'V_absolute', 'E_absolute', 'I_absolute', 'R_absolute',
                     'total_incidence', 'progression', 'recoveries']
 
-        S = x_vec[0]
-        V = x_vec[1]
-        E = x_vec[2]
-        I = x_vec[3]
-        R = x_vec[4]
+        s = x_vec[0]
+        v = x_vec[1]
+        e = x_vec[2]
+        i = x_vec[3]
+        r = x_vec[4]
         beta = x_vec[5]
         gamma = x_vec[6]
         
-        total_incidence = beta * S * I + sigma * beta * V * I
-        progression = epsilon * E
-        recoveries = gamma * I
-        y_vec = np.array([S, V, E, I, R, total_incidence, progression, recoveries])
+        total_incidence = beta * N * s * i + sigma * beta * N * v * i
+        progression = epsilon * e * N
+        recoveries = gamma * i * N
+        y_vec = np.array([s * N, v * N, e * N, i * N, r * N, total_incidence, progression, recoveries])
         return y_vec
 
     def h_comprehensive(self, x_vec, u_vec, return_measurement_names=False):
@@ -318,19 +324,20 @@ class H(object):
             return ['S_absolute', 'V_absolute', 'E_absolute', 'I_absolute', 'R_absolute',
                     'unvax_incidence', 'vax_incidence', 'progression', 'recoveries']
 
-        S = x_vec[0]
-        V = x_vec[1]
-        E = x_vec[2]
-        I = x_vec[3]
-        R = x_vec[4]
+        s = x_vec[0]
+        v = x_vec[1]
+        e = x_vec[2]
+        i = x_vec[3]
+        r = x_vec[4]
         beta = x_vec[5]
         gamma = x_vec[6]
         
-        unvax_incidence = beta * S * I
-        vax_incidence = sigma * beta * V * I
-        progression = epsilon * E
-        recoveries = gamma * I
-        y_vec = np.array([S, V, E, I, R, unvax_incidence, vax_incidence, progression, recoveries])
+        unvax_incidence = beta * N * s * i
+        vax_incidence = sigma * beta * N * v * i
+        progression = epsilon * e * N
+        recoveries = gamma * i * N
+        y_vec = np.array([s * N, v * N, e * N, i * N, r * N, unvax_incidence, vax_incidence, progression, recoveries])
+        return y_vec
         return y_vec
 
 
