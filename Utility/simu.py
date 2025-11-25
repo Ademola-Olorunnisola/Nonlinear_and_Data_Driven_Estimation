@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""tb_sveir_simulations.py - SVEIR Model with Beta and Gamma Estimation"""
+"""tb_sveir_simulations.py - SVEIR Model with Beta and Gamma Estimation - CORRECTED"""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -68,11 +68,11 @@ class F(object):
         kappa = u_vec[1]  # social distancing effectiveness
 
         # f0 component: drift dynamics (no controls)
-        # Note: beta * s * i * N for frequency-dependent transmission with proportions
+        # FIXED: Removed N from transmission - using proportions only
         f0_contribution = np.array([
-            Lambda / N - beta * N * s * i - mu * s,
-            -sigma * beta * N * v * i - mu * v,
-            beta * N * s * i + sigma * beta * N * v * i - epsilon * e - mu * e,
+            Lambda / N - beta * s * i - mu * s,
+            -sigma * beta * v * i - mu * v,
+            beta * s * i + sigma * beta * v * i - epsilon * e - mu * e,
             epsilon * e - gamma * i - mu * i,
             gamma * i - mu * r,
             0,
@@ -91,11 +91,11 @@ class F(object):
         ])
 
         # f2 component: multiplied by control kappa (social distancing)
-        # Social distancing reduces transmission: prevents entry to E compartment
+        # FIXED: Removed N from transmission - using proportions only
         f2_contribution = kappa * np.array([
-            beta * N * s * i,
-            sigma * beta * N * v * i,
-            -beta * N * s * i - sigma * beta * N * v * i,
+            beta * s * i,
+            sigma * beta * v * i,
+            -beta * s * i - sigma * beta * v * i,
             0,
             0,
             0,
@@ -212,7 +212,7 @@ class H(object):
         """
         Measurement 7: y = [S, V, E, I, R, total_incidence]^T
         Includes total infection flow (entry to E) for better beta observability
-        total_incidence = β*N*s*i + σ*β*N*v*i (absolute count per day)
+        total_incidence = β*s*i*N + σ*β*v*i*N (absolute count per day)
         """
         if return_measurement_names:
             return ['S_absolute', 'V_absolute', 'E_absolute', 'I_absolute', 'R_absolute', 
@@ -225,7 +225,7 @@ class H(object):
         r = x_vec[4]
         beta = x_vec[5]
         
-        total_incidence = beta * N * s * i + sigma * beta * N * v * i
+        total_incidence = (beta * s * i + sigma * beta * v * i) * N
         y_vec = np.array([s * N, v * N, e * N, i * N, r * N, total_incidence])
         return y_vec
 
@@ -287,7 +287,7 @@ class H(object):
         beta = x_vec[5]
         gamma = x_vec[6]
         
-        total_incidence = beta * N * s * i + sigma * beta * N * v * i
+        total_incidence = (beta * s * i + sigma * beta * v * i) * N
         recoveries = gamma * i * N
         y_vec = np.array([s * N, v * N, e * N, i * N, r * N, total_incidence, recoveries])
         return y_vec
@@ -309,7 +309,7 @@ class H(object):
         beta = x_vec[5]
         gamma = x_vec[6]
         
-        total_incidence = beta * N * s * i + sigma * beta * N * v * i
+        total_incidence = (beta * s * i + sigma * beta * v * i) * N
         progression = epsilon * e * N
         recoveries = gamma * i * N
         y_vec = np.array([s * N, v * N, e * N, i * N, r * N, total_incidence, progression, recoveries])
@@ -332,12 +332,11 @@ class H(object):
         beta = x_vec[5]
         gamma = x_vec[6]
         
-        unvax_incidence = beta * N * s * i
-        vax_incidence = sigma * beta * N * v * i
+        unvax_incidence = beta * s * i * N
+        vax_incidence = sigma * beta * v * i * N
         progression = epsilon * e * N
         recoveries = gamma * i * N
         y_vec = np.array([s * N, v * N, e * N, i * N, r * N, unvax_incidence, vax_incidence, progression, recoveries])
-        return y_vec
         return y_vec
 
 
