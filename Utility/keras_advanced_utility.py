@@ -2,7 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import layers
+
+import json
+import h5py
+import numpy as np
+import os
 
 # ============================================================================
 # FAST INFERENCE OPTIMIZATION
@@ -183,42 +187,22 @@ def save_model_complete(model, filepath, core_architecture, aux_architecture,
                        training_parameters):
     """
     Save model weights and complete configuration for easy reloading.
-    
-    Parameters:
-    -----------
-    model : keras.Model
-        Trained model to save
-    filepath : str
-        Base filepath (without extension), e.g., 'my_model'
-    core_architecture : list of dict
-        Core branch architecture specification
-    aux_architecture : list of dict
-        Auxiliary branch architecture specification
-    combined_architecture : list of dict
-        Combined branch architecture specification
-    input_architecture : dict
-        Dict with 'core_input_dim' and 'aux_input_dim'
-    training_parameters : dict
-        Dict with 'jacobian_weight' and 'sv_weight'
-    
-    Example:
-    --------
-    >>> save_model_complete(
-    ...     model=model,
-    ...     filepath='smooth_dynamics_model',
-    ...     core_architecture=core_architecture,
-    ...     aux_architecture=aux_architecture,
-    ...     combined_architecture=combined_architecture,
-    ...     input_architecture=input_architecture,
-    ...     training_parameters=training_parameters
-    ... )
     """
-    import json
     
-    # Save weights
-    weights_path = f"{filepath}_weights.h5"
-    model.save_weights(weights_path)
-    print(f"✓ Saved weights to: {weights_path}")
+    # Save weights manually layer-by-layer for maximum compatibility
+    h5_path = f"{filepath}.weights.h5"
+    
+    print("Saving weights layer-by-layer for compatibility...")
+    with h5py.File(h5_path, 'w') as f:
+        for layer in model.layers:
+            if len(layer.weights) > 0:
+                layer_group = f.create_group(layer.name)
+                for weight in layer.weights:
+                    weight_name = weight.name.split('/')[-1].split(':')[0]
+                    layer_group.create_dataset(weight_name, data=weight.numpy())
+                print(f"  Saved layer: {layer.name}")
+    
+    print(f"✓ Saved weights to: {h5_path}")
     
     # Save complete configuration
     config = {
@@ -229,52 +213,29 @@ def save_model_complete(model, filepath, core_architecture, aux_architecture,
         'training_parameters': training_parameters
     }
     
-    config_path = f"{filepath}_config.json"
+    config_path = f"{filepath}.config.json"
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
     print(f"✓ Saved configuration to: {config_path}")
     
     print(f"\nModel saved successfully!")
-    print(f"To load: model = load_model_complete('{filepath}')")
-
+    print(f"To load: model, dropout_layer, config = load_model_complete('{filepath}')")
 
 def load_model_complete(filepath, compile_model=True, learning_rate=0.001):
     """
     Load model weights and configuration.
-    
-    Parameters:
-    -----------
-    filepath : str
-        Base filepath (without extension), same as used in save_model_complete
-    compile_model : bool
-        Whether to compile the model (default: True)
-    learning_rate : float
-        Learning rate for optimizer if compiling (default: 0.001)
-    
-    Returns:
-    --------
-    model : keras.Model
-        Loaded model ready for inference or continued training
-    dropout_layer : keras.layers.Dropout
-        Reference to dropout layer
-    config : dict
-        Complete configuration dictionary
-    
-    Example:
-    --------
-    >>> model, dropout_layer, config = load_model_complete('smooth_dynamics_model')
-    >>> # Use for predictions
-    >>> predictions = model.predict([X_core, X_aux])
     """
-    import json
     
     # Load configuration
-    config_path = f"{filepath}_config.json"
+    config_path = f"{filepath}.config.json"
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+    
     with open(config_path, 'r') as f:
         config = json.load(f)
     print(f"✓ Loaded configuration from: {config_path}")
     
-    # Rebuild model with same architecture
+    # Rebuild model with explicit layer names
     model, dropout_layer = build_auxiliary_dropout_model(
         core_input_dim=config['input_architecture']['core_input_dim'],
         aux_input_dim=config['input_architecture']['aux_input_dim'],
@@ -294,18 +255,48 @@ def load_model_complete(filepath, compile_model=True, learning_rate=0.001):
         )
         print(f"✓ Model compiled with learning_rate={learning_rate}")
     
-    # Load weights
-    weights_path = f"{filepath}_weights.h5"
-    model.load_weights(weights_path)
-    print(f"✓ Loaded weights from: {weights_path}")
+    # Load weights from .h5 file
+    h5_path = f"{filepath}.weights.h5"
     
-    print(f"\nModel loaded successfully!")
+    if not os.path.exists(h5_path):
+        raise FileNotFoundError(f"Weights file not found: {h5_path}")
+    
+    print(f"Loading weights from: {h5_path}")
+    
+    # Load layer-by-layer (matches how we saved)
+    with h5py.File(h5_path, 'r') as f:
+        layers_loaded = 0
+        
+        for layer in model.layers:
+            if len(layer.weights) > 0:
+                if layer.name not in f:
+                    print(f"  ⚠ Warning: Layer '{layer.name}' not found in file")
+                    continue
+                
+                layer_group = f[layer.name]
+                weight_values = []
+                
+                for weight in layer.weights:
+                    weight_name = weight.name.split('/')[-1].split(':')[0]
+                    if weight_name in layer_group:
+                        weight_values.append(np.array(layer_group[weight_name]))
+                    else:
+                        print(f"  ⚠ Warning: Weight '{weight_name}' not found in layer '{layer.name}'")
+                        break
+                
+                if len(weight_values) == len(layer.weights):
+                    layer.set_weights(weight_values)
+                    layers_loaded += 1
+                    print(f"  ✓ Loaded: {layer.name}")
+        
+        print(f"\n✓ Loaded {layers_loaded} layers from: {h5_path}")
+    
+    print(f"\n✓ Model loaded successfully!")
     print(f"  Core input dim: {config['input_architecture']['core_input_dim']}")
     print(f"  Aux input dim: {config['input_architecture']['aux_input_dim']}")
-    print(f"  Jacobian weight: {config['training_parameters']['jacobian_weight']}")
-    print(f"  SV weight: {config['training_parameters']['sv_weight']}")
     
     return model, dropout_layer, config
+
 
 
 # ============================================================================
@@ -605,25 +596,34 @@ def build_auxiliary_dropout_model(
     dropout_layer : keras.layers.Dropout
         Reference to dropout layer for curriculum learning
     """
-    # Input layers
-    core_input = layers.Input(shape=(core_input_dim,), name='core_features')
-    aux_input = layers.Input(shape=(aux_input_dim,), name='aux_features')
+    # Input layers with explicit names
+    core_input = keras.layers.Input(shape=(core_input_dim,), name='core_features')
+    aux_input = keras.layers.Input(shape=(aux_input_dim,), name='aux_features')
     
-    # Core branch (no dropout)
+    # Core branch (no dropout) with explicit layer names
     core_branch = core_input
-    for layer_spec in core_architecture:
-        core_branch = layers.Dense(**layer_spec)(core_branch)
+    for i, layer_spec in enumerate(core_architecture):
+        # Add explicit name to layer_spec
+        layer_spec_with_name = layer_spec.copy()
+        layer_spec_with_name['name'] = f'core_dense_{i}'
+        core_branch = keras.layers.Dense(**layer_spec_with_name)(core_branch)
     
-    # Auxiliary branch (with dropout)
-    dropout_layer = layers.Dropout(initial_dropout, name=dropout_layer_name)
-    aux_branch = dropout_layer(aux_input, training=True)
-    for layer_spec in aux_architecture:
-        aux_branch = layers.Dense(**layer_spec)(aux_branch)
+    # Auxiliary branch (with dropout) with explicit layer names
+    dropout_layer = keras.layers.Dropout(initial_dropout, name=dropout_layer_name)
+    aux_branch = dropout_layer(aux_input)
+    for i, layer_spec in enumerate(aux_architecture):
+        # Add explicit name to layer_spec
+        layer_spec_with_name = layer_spec.copy()
+        layer_spec_with_name['name'] = f'aux_dense_{i}'
+        aux_branch = keras.layers.Dense(**layer_spec_with_name)(aux_branch)
     
-    # Combine branches
-    combined = layers.concatenate([core_branch, aux_branch])
-    for layer_spec in combined_architecture:
-        combined = layers.Dense(**layer_spec)(combined)
+    # Combine branches with explicit name
+    combined = keras.layers.concatenate([core_branch, aux_branch], name='concatenate')
+    for i, layer_spec in enumerate(combined_architecture):
+        # Add explicit name to layer_spec
+        layer_spec_with_name = layer_spec.copy()
+        layer_spec_with_name['name'] = f'combined_dense_{i}'
+        combined = keras.layers.Dense(**layer_spec_with_name)(combined)
     
     # Create model with Jacobian regularization
     model = JacobianRegularizedModel(
@@ -826,7 +826,8 @@ def visualize_results(
     y_test,
     model,
     X_core_test,
-    X_aux_test
+    X_aux_test,
+    fontsize=8,
 ):
     """
     Create comprehensive visualization of training and results.
@@ -863,8 +864,8 @@ def visualize_results(
     jacobian_norms = np.linalg.norm(jacobian_test, axis=1)
     
     # Create figure
-    fig = plt.figure(figsize=(16, 12))
-    gs = fig.add_gridspec(4, 3, hspace=0.3, wspace=0.3)
+    fig = plt.figure(figsize=(12, 10))
+    gs = fig.add_gridspec(4, 3, hspace=0.4, wspace=0.4)
     
     # Row 1: Training dynamics
     ax1 = fig.add_subplot(gs[0, 0])
@@ -894,7 +895,7 @@ def visualize_results(
     ax1.grid(True, alpha=0.3)
     ax1.axhline(y=curriculum_callback.final_rate, color='r', linestyle='--', 
                 alpha=0.5, label='Target rate')
-    ax1.legend()
+    ax1.legend(fontsize=int(fontsize*2/3))
     
     # Performance over time
     ax2.plot(curriculum_callback.mae_with_aux_history, 
@@ -904,7 +905,7 @@ def visualize_results(
     ax2.set_xlabel('Epoch')
     ax2.set_ylabel('Validation MAE')
     ax2.set_title('Performance Over Time')
-    ax2.legend()
+    ax2.legend(fontsize=int(fontsize*2/3))
     ax2.grid(True, alpha=0.3)
     
     # Performance gap
@@ -945,8 +946,8 @@ def visualize_results(
         ax10_twin.set_ylabel('Singular Value Loss', color='orange')
         ax10.set_title('Regularization Losses Over Time')
         ax10.grid(True, alpha=0.3)
-        ax10.legend(loc='upper left')
-        ax10_twin.legend(loc='upper right')
+        ax10.legend(loc='upper left', fontsize=int(fontsize*2/3))
+        ax10_twin.legend(loc='upper right', fontsize=int(fontsize*2/3))
     
     # Singular value distribution
     ax11.hist(jacobian_norms, bins=30, color='purple', alpha=0.7, edgecolor='black')
@@ -955,8 +956,8 @@ def visualize_results(
     ax11.axvline(1.0, color='green', linestyle='--', linewidth=2, label='Target (1.0)')
     ax11.set_xlabel('Jacobian Norm (Singular Value)')
     ax11.set_ylabel('Frequency')
-    ax11.set_title(f'Singular Value Distribution\nMean: {jacobian_norms.mean():.4f}')
-    ax11.legend()
+    ax11.set_title(f'Singular Value Distribution Mean: {jacobian_norms.mean():.4f}')
+    ax11.legend(fontsize=int(fontsize*2/3))
     ax11.grid(True, alpha=0.3, axis='y')
     
     # Jacobian vs features
@@ -966,8 +967,14 @@ def visualize_results(
     ax12.set_xlabel('Input Feature Value')
     ax12.set_ylabel('Jacobian (∂output/∂input)')
     ax12.set_title('Jacobian Values vs Input Features\n(Should be large but smooth)')
-    ax12.legend(fontsize=8)
+    ax12.legend(fontsize=int(fontsize*2/3))
     ax12.grid(True, alpha=0.3)
+
+    all_axes = fig.axes
+    for ax in all_axes:
+        for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                 ax.get_xticklabels() + ax.get_yticklabels()):
+            item.set_fontsize(fontsize=fontsize)
     
     plt.tight_layout()
     plt.savefig('curriculum_dropout_results.png', dpi=150, bbox_inches='tight')
@@ -981,7 +988,7 @@ def plot_predictions(ax, y_true, y_pred, mae, title, color):
             [y_true.min(), y_true.max()], 'r--', lw=2)
     ax.set_xlabel('True Values')
     ax.set_ylabel('Predictions')
-    ax.set_title(f'{title}\nMAE: {mae:.4f}')
+    ax.set_title(f'{title} MAE: {mae:.4f}')
     ax.grid(True, alpha=0.3)
 
 
@@ -992,7 +999,6 @@ def plot_comparison_bars(ax, mae_without, mae_with, title):
     ax.set_ylabel('MAE')
     ax.set_title(title)
     ax.grid(True, alpha=0.3, axis='y')
-
 
 # ============================================================================
 # EXAMPLE USAGE
